@@ -29,4 +29,4 @@ mkdir -p "$STATE"
 touch "$STATE/BOOTSTRAP_DONE"
 
 echo "✅ Build Ladder bootstrap complete"
-echo "🙏 Optional donations: $yuptm"
+echo "🙏 Optional donations: \$yuptm"

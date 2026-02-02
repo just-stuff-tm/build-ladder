@@ -21,7 +21,7 @@ if download core/build-ladder.sh &&
    download core/donation.txt; then
   chmod +x "$BIN"/*.sh
   echo "✅ Update complete"
-  echo "🙏 Support continued development: $yuptm"
+  echo "🙏 Support continued development: \$yuptm"
 else
   echo "⚠️ Update failed — restoring backup"
   rm -rf "$BIN"

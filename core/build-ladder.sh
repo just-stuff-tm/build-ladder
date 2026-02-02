@@ -20,7 +20,7 @@ case "${1:-}" in
     ;;
   version)
     cat "$VERSION_FILE"
-    echo "Support development: $yuptm"
+    echo "Support development: \$yuptm"
     exit 0
     ;;
 esac
