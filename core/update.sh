@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-REPO="https://raw.githubusercontent.com/YOURNAME/build-ladder/main"
+REPO="https://raw.githubusercontent.com/just-stuff-tm/build-ladder/main"
 STATE="$HOME/.build-ladder"
 BIN="$STATE/bin"
 BACKUP="$STATE/backup-$(date +%s)"
