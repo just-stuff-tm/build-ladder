@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 PREFIX="/data/data/com.termux/files/usr"
 STATE="$HOME/.build-ladder"
 SDK="$HOME/android-sdk"
 JAVA_HOME="$PREFIX/lib/jvm/java-17-openjdk"
 
-pkg install -y openjdk-17 wget unzip git jq android-tools imagemagick gradle
+pkg install -y \
+  openjdk-17 wget unzip git jq android-tools imagemagick gradle
 
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:$PATH"
@@ -16,14 +17,25 @@ cd "$SDK"
 
 if [[ ! -d cmdline-tools/latest ]]; then
   TMP="$(mktemp -d)"
-  wget -q -O "$TMP/tools.zip" https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+  wget -q -O "$TMP/tools.zip" \
+    https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
   unzip -q "$TMP/tools.zip" -d "$TMP"
   mkdir -p cmdline-tools/latest
   mv "$TMP/cmdline-tools/"* cmdline-tools/latest/
   rm -rf "$TMP"
 fi
 
-yes | cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+yes | cmdline-tools/latest/bin/sdkmanager \
+  "platform-tools" \
+  "platforms;android-34" \
+  "build-tools;34.0.0"
+
+# ── Termux hard requirement: aapt2
+if [[ -n "${TERMUX_VERSION:-}" ]]; then
+  if ! command -v aapt2 >/dev/null; then
+    pkg install -y aapt2 >/dev/null
+  fi
+fi
 
 mkdir -p "$STATE"
 touch "$STATE/BOOTSTRAP_DONE"

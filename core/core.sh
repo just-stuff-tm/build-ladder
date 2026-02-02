@@ -5,10 +5,18 @@ IFS=$'\n\t'
 # ────────────────────────────────────────────────
 # CONFIG
 # ────────────────────────────────────────────────
-AI_MODE="${AI_MODE:-off}"   # off | auto
+AI_MODE="${AI_MODE:-off}"
 AI_ENDPOINT="${AI_ENDPOINT:-http://127.0.0.1:11434/api/generate}"
 AI_MODEL="${AI_MODEL:-deepseek-coder:6.7b}"
 AI_MAX_RETRIES=3
+
+# ────────────────────────────────────────────────
+# TERMUX DETECTION
+# ────────────────────────────────────────────────
+IS_TERMUX=false
+if [[ -n "${TERMUX_VERSION:-}" ]] || [[ -d /data/data/com.termux ]]; then
+  IS_TERMUX=true
+fi
 
 # ────────────────────────────────────────────────
 # PATHS
@@ -19,6 +27,7 @@ PATCHES="$PROJECT/scripts/patches"
 META="$PROJECT/.build-ladder.json"
 LAST_FEEDBACK="$PROJECT/.last_feedback.txt"
 GRADLE_ERR="$STATE/last-gradle-error.txt"
+FORGE_STATE_FILE="$PROJECT/.forge_state"
 
 mkdir -p "$PROJECT" "$PATCHES"
 
@@ -35,31 +44,22 @@ extract_gradle_error() {
   sed -n '/FAILURE:/,$p' gradle.log 2>/dev/null | head -n 200
 }
 
-ai_generate_patch() {
-  local step="$1" feedback="$2" gradle_err="$3"
+# ────────────────────────────────────────────────
+# GRADLE SAFETY DEFAULTS
+# ────────────────────────────────────────────────
+ensure_gradle_properties() {
+  local gp="$PROJECT/gradle.properties"
+  touch "$gp"
 
-  jq -n \
-    --arg m "$AI_MODEL" \
-    --arg p "
-Project metadata:
-$(cat "$META")
+  sed -i '/android.useAndroidX/d' "$gp"
+  sed -i '/android.enableJetifier/d' "$gp"
+  sed -i '/android.aapt2FromMavenOverride/d' "$gp"
 
-Step: $step
-
-User feedback:
-$feedback
-
-Gradle error:
-$gradle_err
-
-Return ONLY a bash script.
-Must start with: #!/usr/bin/env bash
-Path: scripts/patches/patch-$step.sh
-No markdown. No explanations.
-" \
-  '{model:$m,prompt:$p,stream:false}' \
-  | curl -s "$AI_ENDPOINT" -H "Content-Type: application/json" -d @- \
-  | jq -r '.response'
+  cat >> "$gp" <<'EOF'
+android.useAndroidX=true
+android.enableJetifier=true
+android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+EOF
 }
 
 # ────────────────────────────────────────────────
@@ -91,11 +91,6 @@ PACKAGE="$(jq -r .package "$META")"
 # ────────────────────────────────────────────────
 LAST_STEP=$(ls "$PATCHES"/patch-*.sh 2>/dev/null | grep -o '[0-9]\+' | sort -n | tail -1 || echo 0)
 STEP=$((10#$LAST_STEP + 1))
-PATCH="$PATCHES/patch-$(printf "%02d" "$STEP").sh"
-FAILCOUNT="$STATE/fail-$STEP"
-
-touch "$PATCH"
-chmod +x "$PATCH"
 
 cd "$PROJECT"
 
@@ -112,26 +107,15 @@ while true; do
   say "AI mode: $AI_MODE"
   say "────────────────────────────────────────"
 
-  if [[ "$AI_MODE" == "off" ]]; then
-    read -r -p "What is still wrong / missing? " FEEDBACK
-  else
-    FEEDBACK="$(cat "$LAST_FEEDBACK" 2>/dev/null || echo auto)"
-    say "🤖 AI autonomous feedback mode"
-  fi
+  read -r -p "What is still wrong / missing? " FEEDBACK
   echo "$FEEDBACK" > "$LAST_FEEDBACK"
 
-  SNAP="$PROJECT/.rollback-$STEP.tgz"
-  tar czf "$SNAP" . >/dev/null 2>&1 || true
+  PATCH="$PATCHES/patch-$(printf "%02d" "$STEP").sh"
+  touch "$PATCH"
+  chmod +x "$PATCH"
 
-  # ── PATCH GENERATION
-  if [[ "$AI_MODE" == "auto" ]]; then
-    say "🤖 AI generating patch..."
-    ERR="$(cat "$GRADLE_ERR" 2>/dev/null || echo none)"
-    ai_generate_patch "$STEP" "$FEEDBACK" "$ERR" > "$PATCH"
-  else
-    say "📋 Paste patch, then Ctrl+D"
-    cat > "$PATCH"
-  fi
+  say "📋 Paste patch, then Ctrl+D"
+  cat > "$PATCH"
 
   grep -q '^#!/usr/bin/env bash' "$PATCH" || {
     say "⚠ Invalid patch (missing shebang)"
@@ -139,26 +123,25 @@ while true; do
   }
 
   say "🧩 Applying patch..."
+  mkdir -p "$PROJECT/app/src/main/java" "$PROJECT/app/src/main/res/layout"
+
   if ! bash "$PATCH"; then
-    say "⚠ Patch failed — rolling back"
-    tar xzf "$SNAP" -C "$PROJECT" --strip-components=1
-    echo $(( $(cat "$FAILCOUNT" 2>/dev/null || echo 0) + 1 )) > "$FAILCOUNT"
-    (( $(cat "$FAILCOUNT") >= AI_MAX_RETRIES )) && die "Patch failed too many times"
+    say "⚠ Patch failed"
     continue
   fi
 
   say "⚙ Building APK..."
+  ensure_gradle_properties
+
   if ./gradlew assembleDebug 2>&1 | tee gradle.log; then
+    APK="$PROJECT/app/build/outputs/apk/debug/app-debug.apk"
     say "✅ Build OK"
-    APK="app/build/outputs/apk/debug/app-debug.apk"
-    [[ -f "$APK" ]] && adb install -r "$APK" >/dev/null 2>&1 || true
-    rm -f "$FAILCOUNT"
-    STEP=$((STEP+1))
-    PATCH="$PATCHES/patch-$(printf "%02d" "$STEP").sh"
-    touch "$PATCH"
-    chmod +x "$PATCH"
+    say "📦 APK located at:"
+    say "  $APK"
+    echo "BUILT" > "$FORGE_STATE_FILE"
+    ((STEP++))
   else
     extract_gradle_error > "$GRADLE_ERR"
-    say "❌ Build failed — error saved for next step"
+    say "❌ Build failed — error saved"
   fi
 done
