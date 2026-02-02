@@ -9,9 +9,9 @@ mkdir -p "$STATE/bin"
 
 echo "⬇ Installing Build Ladder..."
 
-curl -fsSL https://raw.githubusercontent.com/YOURNAME/build-ladder/main/core/build-ladder.sh   -o "$STATE/bin/build-ladder.sh"
+curl -fsSL https://raw.githubusercontent.com/just-stuff-tm/build-ladder/main/core/build-ladder.sh   -o "$STATE/bin/build-ladder.sh"
 
-curl -fsSL https://raw.githubusercontent.com/YOURNAME/build-ladder/main/bootstrap/bootstrap.sh   -o "$STATE/bin/bootstrap.sh"
+curl -fsSL https://raw.githubusercontent.com/just-stuff-tm/build-ladder/main/bootstrap/bootstrap.sh   -o "$STATE/bin/bootstrap.sh"
 
 chmod +x "$STATE/bin/"*.sh
 
