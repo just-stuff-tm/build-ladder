@@ -1,26 +1,41 @@
 #!/usr/bin/env bash
 set -e
 
+REPO="https://raw.githubusercontent.com/just-stuff-tm/build-ladder/main"
+
 PREFIX="/data/data/com.termux/files/usr"
 STATE="$HOME/.build-ladder"
-BIN="$PREFIX/bin/build-ladder"
+BIN="$STATE/bin"
 
-mkdir -p "$STATE/bin"
+mkdir -p "$BIN"
 
 echo "⬇ Installing Build Ladder..."
 
-curl -fsSL https://raw.githubusercontent.com/just-stuff-tm/build-ladder/main/core/build-ladder.sh   -o "$STATE/bin/build-ladder.sh"
+download() {
+  echo "• Fetching $1"
+  curl -fsSL "$REPO/$1" -o "$BIN/$(basename "$1")"
+}
 
-curl -fsSL https://raw.githubusercontent.com/just-stuff-tm/build-ladder/main/bootstrap/bootstrap.sh   -o "$STATE/bin/bootstrap.sh"
+# Core runtime files (MUST all exist)
+download core/build-ladder.sh
+download core/core.sh
+download core/update.sh
+download core/version.txt
+download core/donation.txt
 
-chmod +x "$STATE/bin/"*.sh
+# Bootstrap
+download bootstrap/bootstrap.sh
 
-cat > "$BIN" <<'EOF'
+chmod +x "$BIN"/*.sh
+
+# Entrypoint
+cat > "$PREFIX/bin/build-ladder" <<'EOF'
 #!/usr/bin/env bash
 exec "$HOME/.build-ladder/bin/build-ladder.sh" "$@"
 EOF
 
-chmod +x "$BIN"
+chmod +x "$PREFIX/bin/build-ladder"
 
-echo "✅ Installed. Run: build-ladder"
-echo "🙏 Optional donations welcome: $yuptm"
+echo "✅ Build Ladder installed successfully"
+echo "🙏 Voluntary donations welcome: \$yuptm"
+
