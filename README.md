@@ -1,5 +1,7 @@
 # Build Ladder
 
+**Status:** Alpha (Termux tested)
+
 Build Ladder is an autonomous, Termux-native Android APK builder powered by AI.
 
 ## Install (Termux)
