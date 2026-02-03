@@ -1,51 +1,139 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
 #####################################################################
-# BUILD LADDER — AI AGENT
-# Advisory only. Never applies changes.
+# BUILD LADDER — AI AGENT (READ-ONLY SUGGESTION ENGINE)
+#
+# CONTRACT (ENFORCED)
+# - OUTPUT: PURE bash only
+# - MUST start with #!/usr/bin/env bash
+# - MUST be idempotent
+# - SAFE if re-run
+# - NEVER execute commands
+# - NEVER modify update.sh
 #####################################################################
-
-MODE="${1:-}"
 
 STATE="$HOME/.build-ladder"
-PROJECT_LINK="$HOME/projects/current"
+PROJECT="$HOME/projects/current"
+
 AI_DIR="$STATE/ai"
-MODEL="$(cat "$AI_DIR/runtime/model" 2>/dev/null || echo qwen2.5-coder:7b)"
+RUNTIME_DIR="$AI_DIR/runtime"
+LOG_DIR="$AI_DIR/logs"
+MODEL_FILE="$RUNTIME_DIR/model"
+GRADLE_ERR="$STATE/last-gradle-error.txt"
 
-[[ "$MODE" == "forge" ]] || {
-  echo "❌ Invalid AI mode"
-  exit 1
+mkdir -p "$LOG_DIR"
+
+# ----------------------------------------------------------
+# Preconditions (never hard-fail Forge)
+# ----------------------------------------------------------
+command -v ollama >/dev/null 2>&1 || {
+  echo "# ERROR: Ollama not installed"
+  exit 0
 }
 
-[[ -L "$PROJECT_LINK" ]] || {
-  echo "❌ No active project selected."
-  exit 1
+[[ -f "$MODEL_FILE" ]] || {
+  echo "# ERROR: Missing model file: $MODEL_FILE"
+  exit 0
 }
 
-META="$PROJECT_LINK/.build-ladder.json"
-[[ -f "$META" ]] || {
-  echo "❌ Missing project metadata."
-  exit 1
+[[ -L "$PROJECT" && -f "$PROJECT/.build-ladder.json" ]] || {
+  echo "# ERROR: No active project"
+  exit 0
 }
+
+MODEL="$(cat "$MODEL_FILE")"
+
+# ----------------------------------------------------------
+# Project context
+# ----------------------------------------------------------
+META="$PROJECT/.build-ladder.json"
 
 APP_NAME="$(jq -r .app_name "$META")"
 GOAL="$(jq -r .goal "$META")"
 PACKAGE="$(jq -r .package "$META")"
 
-cat <<EOF
-#!/usr/bin/env bash
-# AI SUGGESTED PATCH (DO NOT AUTO-RUN)
+PATCH_COUNT="$(ls "$PROJECT/scripts/patches"/patch-*.sh 2>/dev/null | wc -l | tr -d ' ')"
+NEXT_STEP="$(printf "%02d" $((PATCH_COUNT + 1)))"
 
-# App: $APP_NAME
-# Goal: $GOAL
-# Package: $PACKAGE
+LAST_ERROR="$(cat "$GRADLE_ERR" 2>/dev/null || true)"
 
-# RULES:
-# - Idempotent
-# - Safe to re-run
-# - No destructive deletes
-# - Create missing files only
+# ----------------------------------------------------------
+# Prompt (bulletproof)
+# ----------------------------------------------------------
+PROMPT="$(cat <<EOF
+You are Build Ladder AI.
 
-# TODO: Implement initial Android project structure
+STRICT RULES:
+- OUTPUT MUST BE VALID BASH ONLY
+- FIRST LINE MUST BE: #!/usr/bin/env bash
+- COMMENTS MUST START WITH #
+- NO MARKDOWN
+- NO PROSE
+- NO LISTS
+- NO EXPLANATIONS
+- NO COMMAND EXECUTION
+- NO EXIT STATEMENTS
+- FILE CHECKS ALLOWED ONLY FOR CREATE / MODIFY
+- DO NOT TOUCH update.sh
+- IDEMPOTENT ONLY
+
+PROJECT:
+App: $APP_NAME
+Goal: $GOAL
+Package: $PACKAGE
+Step: patch-$NEXT_STEP
+
+LAST ERROR:
+$LAST_ERROR
+
+OUTPUT = CONTENTS OF:
+scripts/patches/patch-$NEXT_STEP.sh
 EOF
+)"
+
+# ----------------------------------------------------------
+# Run model
+# ----------------------------------------------------------
+RAW_OUTPUT="$(
+  ollama run "$MODEL" 2>>"$LOG_DIR/agent.log" <<EOF
+$PROMPT
+EOF
+)"
+
+# ----------------------------------------------------------
+# Sanitize HARD (bash-only)
+# ----------------------------------------------------------
+SANITIZED="$(
+  printf '%s\n' "$RAW_OUTPUT" |
+  sed '/^```/d' |
+  sed -n '/^#!\/usr\/bin\/env bash/,$p' |
+  awk '
+    NR==1 { print; next }
+    /^[[:space:]]*$/ { print; next }
+    /^[[:space:]]*#/ { print; next }
+    /^[[:space:]]*[a-zA-Z0-9_]+=/ { print; next }
+    /^[[:space:]]*(if|then|fi|for|while|do|done|case|esac|\{|\}|\(|\))/ { print; next }
+    { exit }
+  '
+)"
+
+# ----------------------------------------------------------
+# Validate
+# ----------------------------------------------------------
+if ! printf '%s\n' "$SANITIZED" | head -n1 | grep -q '^#!/usr/bin/env bash'; then
+  cat <<EOF
+#!/usr/bin/env bash
+# ERROR: AI output invalid
+# Reason: Missing or malformed shebang
+# Raw output saved to: $LOG_DIR/agent.log
+EOF
+  printf '%s\n' "$RAW_OUTPUT" >>"$LOG_DIR/agent.log"
+  exit 0
+fi
+
+# ----------------------------------------------------------
+# Emit READ-ONLY patch
+# ----------------------------------------------------------
+printf '%s\n' "$SANITIZED"

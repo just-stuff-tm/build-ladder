@@ -26,6 +26,7 @@ if [[ -d "$PROJECT_LINK" && ! -L "$PROJECT_LINK" ]]; then
   rm -rf "$PROJECT_LINK"
 fi
 
+# Gradle + Java safety defaults (Termux-safe)
 export GRADLE_OPTS="-Xmx2g -Dorg.gradle.daemon=false"
 export _JAVA_OPTIONS="-XX:+UseParallelGC"
 
@@ -43,6 +44,9 @@ extract_gradle_error(){
   sed -n '/FAILURE:/,$p' gradle.log 2>/dev/null | head -n 200
 }
 
+# =================================================
+# ANDROID / GRADLE HARDENING
+# =================================================
 ensure_gradle_properties(){
   local gp="$PROJECT/gradle.properties"
   touch "$gp"
@@ -50,24 +54,69 @@ ensure_gradle_properties(){
   sed -i '/android.useAndroidX/d' "$gp"
   sed -i '/android.enableJetifier/d' "$gp"
   sed -i '/android.aapt2FromMavenOverride/d' "$gp"
+  sed -i '/android.enableAapt2Daemon/d' "$gp"
 
   cat >> "$gp" <<EOF
 android.useAndroidX=true
 android.enableJetifier=true
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
+android.enableAapt2Daemon=false
 EOF
 }
 
+ensure_local_properties(){
+  local sdk="$HOME/android-sdk"
+  mkdir -p "$sdk"
+  cat > "$PROJECT/local.properties" <<EOF
+sdk.dir=$sdk
+EOF
+}
+
+ensure_kotlin_sanity(){
+  local root="$PROJECT/build.gradle"
+  local app="$PROJECT/app/build.gradle"
+
+  touch "$root"
+
+  if ! grep -q 'kotlin_version' "$root"; then
+    cat >> "$root" <<'EOF'
+
+ext {
+    kotlin_version = '1.8.22'
+}
+EOF
+  fi
+
+  if [[ -f "$app" ]]; then
+    sed -i '/kotlin-stdlib/d' "$app"
+
+    if ! grep -q 'kotlin-bom' "$app"; then
+      sed -i '/dependencies\s*{/a\
+    implementation platform("org.jetbrains.kotlin:kotlin-bom:${kotlin_version}")\
+' "$app"
+    fi
+
+    if ! grep -q 'configurations.all' "$app"; then
+      cat >> "$app" <<'EOF'
+
+configurations.all {
+    exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"
+    exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8"
+}
+EOF
+    fi
+  fi
+}
+
 # =================================================
-# BEGINNER TIPS (SHOWN GRADUALLY)
+# BEGINNER TIPS
 # =================================================
 show_tip(){
   local tips=(
-    "You don’t need to write code — describe what’s missing."
-    "If a build fails, you can ask the AI for a patch suggestion."
-    "Small steps work better than giant ones."
-    "Ctrl+C is always safe."
-    "Every step is reversible."
+    "Describe what's missing — you don’t need to know the solution."
+    "Small fixes converge faster than big ones."
+    "If it builds once, it can build again."
+    "The AI suggests. YOU decide."
   )
 
   touch "$TIPS_FILE"
@@ -103,6 +152,7 @@ create_project(){
   [[ -d "$TARGET" ]] && die "Project already exists."
 
   mkdir -p "$TARGET/scripts/patches"
+
   cat > "$TARGET/.build-ladder.json" <<EOF
 {"app_name":"$APP_NAME","goal":"$GOAL","package":"$PACKAGE"}
 EOF
@@ -154,13 +204,12 @@ select_project(){
 }
 
 # =================================================
-# PROJECT SELECTION (ONCE)
+# PROJECT SELECTION
 # =================================================
-if [[ ! -L "$PROJECT_LINK" ]]; then
+while true; do
   select_project
-fi
-
-show_tip
+  [[ -L "$PROJECT_LINK" ]] && break
+done
 
 # =================================================
 # LOAD PROJECT
@@ -168,10 +217,7 @@ show_tip
 PROJECT="$PROJECT_LINK"
 PATCHES="$PROJECT/scripts/patches"
 META="$PROJECT/.build-ladder.json"
-LAST_FEEDBACK="$PROJECT/.last_feedback.txt"
 FORGE_STATE="$PROJECT/.forge_state"
-
-[[ -f "$META" ]] || die "Missing project metadata."
 
 APP_NAME="$(jq -r .app_name "$META")"
 GOAL="$(jq -r .goal "$META")"
@@ -184,29 +230,10 @@ LAST_STEP=$(ls "$PATCHES"/patch-*.sh 2>/dev/null | tr -dc '0-9\n' | sort -n | ta
 STEP=$((10#$LAST_STEP + 1))
 
 # =================================================
-# AI HELPER (COPY-PASTE FRIENDLY)
-# =================================================
-write_ai_helper(){
-  cat > "$AI_HELPER_DIR/step-$(printf "%02d" "$STEP")-debug.txt" <<EOF
-BUILD LADDER DEBUG CONTEXT
-
-App: $APP_NAME
-Goal: $GOAL
-Package: $PACKAGE
-Step: $STEP
-
-ERROR:
-$(cat "$GRADLE_ERR" 2>/dev/null)
-
-Return ONLY a bash patch script.
-Must start with: #!/usr/bin/env bash
-EOF
-}
-
-# =================================================
 # FORGE LOOP
 # =================================================
 while true; do
+  echo
   echo "────────────────────────────────────────"
   echo "🔨 Build Ladder Forge"
   echo "App: $APP_NAME"
@@ -214,44 +241,49 @@ while true; do
   echo "Package: $PACKAGE"
   echo "Step: $STEP"
   echo "────────────────────────────────────────"
-
-  read -r -p "What is still wrong / missing? " FEEDBACK
-  echo "$FEEDBACK" > "$LAST_FEEDBACK"
   echo
 
-  read -r -p "Ask AI for a patch suggestion? [y/N] " USE_AI
-  if [[ "$USE_AI" =~ ^[Yy]$ ]] && [[ -x "$AI_DIR/agent.sh" ]]; then
+  read -r -p "What is still wrong / missing? " FEEDBACK
+  echo
+
+  read -r -p "🤖 Ask AI to suggest a patch? [y/N] " USE_AI
+  if [[ "$USE_AI" =~ ^[Yy]$ && -x "$STATE/ai/agent.sh" ]]; then
     echo
-    echo "🧠 AI SUGGESTION (COPY ONLY):"
-    echo "────────────────────────────────────────"
-    "$AI_DIR/agent.sh" forge
-    echo "────────────────────────────────────────"
+    "$STATE/ai/agent.sh" forge
     echo
   fi
 
   PATCH="$PATCHES/patch-$(printf "%02d" "$STEP").sh"
-  echo "📋 Paste patch, Ctrl+D when done"
+  echo
+  echo "📋 Paste patch now (Ctrl+D when done)"
   cat > "$PATCH"
   chmod +x "$PATCH"
 
-  grep -q '^#!/usr/bin/env bash' "$PATCH" || {
-    echo "⚠ Patch missing shebang"
+  if ! grep -q '^#!/usr/bin/env bash' "$PATCH"; then
+    echo "⚠ Patch rejected (missing shebang)"
     continue
-  }
+  fi
 
+  echo
+  echo "🧩 Applying patch..."
   mkdir -p app/src/main/java app/src/main/res/layout
 
-  if bash "$PATCH" && ./gradlew assembleDebug 2>&1 | tee gradle.log; then
-    echo "✅ Build OK"
-    echo BUILT > "$FORGE_STATE"
+  bash "$PATCH" || continue
+
+  echo
+  echo "⚙ Building APK..."
+  ensure_gradle_properties
+  ensure_local_properties
+  ensure_kotlin_sanity
+
+  if ./gradlew assembleDebug 2>&1 | tee gradle.log; then
+    echo
+    echo "✅ Build succeeded"
+    echo "📦 app/build/outputs/apk/debug/app-debug.apk"
     ((STEP++))
   else
     extract_gradle_error > "$GRADLE_ERR"
-    write_ai_helper
     echo
-    echo "❌ Build failed. COPY BELOW INTO ANY AI:"
-    echo "────────────────────────────────────────"
-    cat "$AI_HELPER_DIR/step-$(printf "%02d" "$STEP")-debug.txt"
-    echo "────────────────────────────────────────"
+    echo "❌ Build failed — copy error into AI if needed"
   fi
 done
