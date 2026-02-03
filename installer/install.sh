@@ -12,19 +12,19 @@ mkdir -p "$BIN" "$AI/prompts" "$AI/runtime" "$AI/logs"
 
 echo "⬇ Installing Build Ladder..."
 
-download(){
+download() {
   echo "• Fetching $1"
   curl -fsSL "$REPO/$1" -o "$2"
 }
 
 # =================================================
-# CORE
+# CORE RUNTIME
 # =================================================
 download core/build-ladder.sh "$BIN/build-ladder.sh"
-download core/core.sh "$BIN/core.sh"
-download core/update.sh "$BIN/update.sh"
-download core/version.txt "$BIN/version.txt"
-download core/donation.txt "$BIN/donation.txt"
+download core/core.sh         "$BIN/core.sh"
+download core/update.sh       "$BIN/update.sh"
+download core/version.txt     "$BIN/version.txt"
+download core/donation.txt    "$BIN/donation.txt"
 
 # =================================================
 # BOOTSTRAP
@@ -32,29 +32,44 @@ download core/donation.txt "$BIN/donation.txt"
 download bootstrap/bootstrap.sh "$BIN/bootstrap.sh"
 
 # =================================================
-# AI (STATIC)
+# AI SUBSYSTEM (FILES)
 # =================================================
-download ai/agent.sh "$AI/agent.sh"
+download ai/agent.sh    "$AI/agent.sh"
+download ai/config.sh   "$AI/config.sh"
+download ai/client.sh   "$AI/client.sh"
+download ai/memory.sh   "$AI/memory.sh"
+download ai/ux.sh       "$AI/ux.sh"
+
+download ai/prompts/build_fail.txt    "$AI/prompts/build_fail.txt"
+download ai/prompts/suggest_patch.txt "$AI/prompts/suggest_patch.txt"
+download ai/prompts/explain_error.txt "$AI/prompts/explain_error.txt"
+download ai/prompts/improve_ux.txt    "$AI/prompts/improve_ux.txt"
 
 chmod +x "$BIN"/*.sh
 chmod +x "$AI"/*.sh
 
 # =================================================
-# DEV-ONLY AI RUNTIME
+# AI RUNTIME (TERMUX-SAFE OLLAMA INSTALL)
 # =================================================
-if [[ "${BUILD_LADDER_DEV_AI:-0}" == "1" ]]; then
-  echo "🧠 Installing local AI runtime (DEV MODE)"
+echo "🧠 Installing local AI runtime (Termux-compatible)..."
 
-  if ! command -v ollama >/dev/null 2>&1; then
-    curl -fsSL https://ollama.com/install.sh | bash
-  fi
-
-  MODEL="qwen2.5-coder:7b"
-  ollama pull "$MODEL" || true
-  echo "$MODEL" > "$AI/runtime/model"
+if ! command -v ollama >/dev/null 2>&1; then
+  echo "• Installing Ollama via ollama-in-termux"
+  curl -sL https://github.com/Anon4You/ollama-in-termux/raw/main/ollama.sh | bash
 else
-  echo "ℹ️ AI runtime install skipped (set BUILD_LADDER_DEV_AI=1)"
+  echo "• Ollama already installed"
 fi
+
+MODEL="qwen2.5-coder:7b"
+
+if ! ollama list | grep -q "^$MODEL"; then
+  echo "• Pulling AI model: $MODEL"
+  ollama pull "$MODEL"
+else
+  echo "• AI model already present"
+fi
+
+echo "$MODEL" > "$AI/runtime/model"
 
 # =================================================
 # ENTRYPOINT
@@ -66,6 +81,10 @@ EOF
 
 chmod +x "$PREFIX/bin/build-ladder"
 
-echo "✅ Build Ladder installed"
-echo "🧠 AI: advisory only"
+# =================================================
+# FINAL
+# =================================================
+echo "✅ Build Ladder installed successfully"
+echo "🧠 Local AI: ENABLED (Termux)"
+echo "🤖 Model: $MODEL"
 echo "🙏 Voluntary donations welcome: CashApp \$yuptm"
