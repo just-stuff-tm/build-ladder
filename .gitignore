@@ -1,0 +1,7 @@
+# ── Maintainer-only tooling (NEVER COMMIT) ──
+.dev/
+dev/
+*-dev.sh
+apply-all-patches.sh
+migration.sh
+

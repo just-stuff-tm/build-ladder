@@ -1,0 +1,2 @@
+Explain this Android build error to a beginner
+using simple language and short steps.

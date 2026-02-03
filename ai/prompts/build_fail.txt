@@ -1,0 +1,27 @@
+BUILD LADDER – AI DEBUG CONTEXT
+
+User skill level: {{SKILL}}
+
+App: {{APP_NAME}}
+Goal: {{GOAL}}
+Package: {{PACKAGE}}
+Step: {{STEP}}
+
+WHAT FAILED:
+Android Gradle build
+
+ERROR OUTPUT:
+{{GRADLE_ERROR}}
+
+WHAT I WANT FROM YOU:
+Return a FIXED bash patch script.
+
+RULES:
+- Start with #!/usr/bin/env bash
+- No markdown
+- No explanation
+- Overwrite files if needed
+- Android SDK 34
+- AndroidX
+- Path:
+scripts/patches/patch-{{STEP_PADDED}}.sh
