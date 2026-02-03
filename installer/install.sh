@@ -60,7 +60,7 @@ else
   echo "• Ollama already installed"
 fi
 
-MODEL="qwen2.5-coder:7b"
+MODEL="qwen2.5-coder:1.5b"
 
 if ! ollama list | grep -q "^$MODEL"; then
   echo "• Pulling AI model: $MODEL"
